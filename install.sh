@@ -14,7 +14,7 @@ echo ""
 # 1. 检查 Python 3
 # ----------------------------
 
-echo "📋 步骤 1/3: 检查 Python 3..."
+echo "📋 步骤 1/4: 检查 Python 3..."
 
 if ! command -v python3 &> /dev/null; then
     echo "❌ 错误: 需要 Python 3"
@@ -29,7 +29,7 @@ echo ""
 # 2. 安装依赖
 # ----------------------------
 
-echo "📋 步骤 2/3: 安装依赖..."
+echo "📋 步骤 2/4: 安装依赖..."
 
 if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
     pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
