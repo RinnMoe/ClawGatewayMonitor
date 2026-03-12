@@ -26,14 +26,41 @@ echo "✅ Python 3 已安装 (版本: $PYTHON_VERSION)"
 echo ""
 
 # ----------------------------
-# 2. 安装依赖
+# 2. 安装依赖（使用虚拟环境）
 # ----------------------------
 
 echo "📋 步骤 2/4: 安装依赖..."
 
+VENV_DIR="$SCRIPT_DIR/venv"
+
 if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
-    pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
+    # 检查是否已有虚拟环境
+    if [ -d "$VENV_DIR" ]; then
+        echo "✅ 检测到已有虚拟环境: $VENV_DIR"
+        VENV_PYTHON="$VENV_DIR/bin/python3"
+    else
+        echo "🔧 创建项目虚拟环境..."
+        python3 -m venv "$VENV_DIR"
+        VENV_PYTHON="$VENV_DIR/bin/python3"
+        echo "✅ 虚拟环境已创建: $VENV_DIR"
+    fi
+    
+    # 使用虚拟环境的 pip 安装依赖
+    echo "📦 安装依赖到虚拟环境..."
+    if [ -f "$VENV_DIR/bin/pip" ]; then
+        "$VENV_DIR/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt"
+    else
+        # 回退：尝试使用系统 pip（兼容性）
+        pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
+    fi
     echo "✅ 依赖安装完成"
+    
+    # 给出启动提示
+    echo ""
+    echo "💡 提示："
+    echo "  激活虚拟环境: source $VENV_DIR/bin/activate"
+    echo "  运行监控: python3 $MONITOR_FILE"
+    echo "  或直接使用: $VENV_DIR/bin/python3 $MONITOR_FILE"
 else
     echo "⚠️  requirements.txt 未找到，跳过依赖安装"
 fi
