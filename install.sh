@@ -53,6 +53,15 @@ if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
         # 回退：尝试使用系统 pip（兼容性）
         pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
     fi
+    
+    # 验证关键依赖
+    echo "🔍 验证依赖安装..."
+    if ! "$VENV_PYTHON" -c "import websocket" 2>/dev/null; then
+        echo "❌ 依赖安装失败，关键模块 'websocket' 不可用"
+        echo "   请手动运行: $VENV_DIR/bin/pip install -U websocket-client"
+        exit 1
+    fi
+    
     echo "✅ 依赖安装完成"
     
     # 给出启动提示
@@ -155,6 +164,15 @@ echo ""
 
 echo "📋 步骤 4/4: systemd 服务配置..."
 
+# 确保 VENV_PYTHON 已定义（如果步骤2跳过了依赖安装）
+if [ -z "$VENV_PYTHON" ]; then
+    if [ -f "$VENV_DIR/bin/python3" ]; then
+        VENV_PYTHON="$VENV_DIR/bin/python3"
+    else
+        VENV_PYTHON=$(which python3)
+    fi
+fi
+
 # 检查是否为 systemd 系统
 if ! command -v systemctl &> /dev/null; then
     echo "⚠️  当前系统不支持 systemd，跳过服务安装"
@@ -162,11 +180,58 @@ if ! command -v systemctl &> /dev/null; then
     echo "✨ 安装完成！"
     echo ""
     echo "📚 启动方式："
-    echo "  前台运行: python3 $MONITOR_FILE"
-    echo "  后台运行: nohup python3 $MONITOR_FILE > monitor.log 2>&1 &"
+    echo "  前台运行: $VENV_PYTHON $MONITOR_FILE"
+    echo "  后台运行: nohup $VENV_PYTHON $MONITOR_FILE > monitor.log 2>&1 &"
     echo ""
     echo "📖 详细使用说明请查看 README.md"
     exit 0
+fi
+
+# 检测是否已安装服务
+EXISTING_SERVICE=""
+if sudo systemctl list-unit-files --type=service 2>/dev/null | grep -q "gateway-monitor.service"; then
+    EXISTING_SERVICE="gateway-monitor.service"
+elif sudo systemctl list-unit-files --type=service 2>/dev/null | grep -q "gateway-health-monitor.service"; then
+    EXISTING_SERVICE="gateway-health-monitor.service"
+fi
+
+if [ -n "$EXISTING_SERVICE" ]; then
+    echo "⚠️  检测到已存在的服务: $EXISTING_SERVICE"
+    echo ""
+    read -p "是否要卸载并重新安装服务? (y/n) [默认: n]: " reinstall_service
+    reinstall_service=${reinstall_service:-n}
+    
+    if [[ "$reinstall_service" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "🔧 正在卸载旧服务..."
+        # 停止服务
+        sudo systemctl stop "$EXISTING_SERVICE" 2>/dev/null || true
+        sudo systemctl disable "$EXISTING_SERVICE" 2>/dev/null || true
+        # 删除服务文件
+        if [ -f "/etc/systemd/system/$EXISTING_SERVICE" ]; then
+            sudo rm -f "/etc/systemd/system/$EXISTING_SERVICE"
+        elif [ -f "/etc/systemd/system/gateway-monitor.service" ]; then
+            sudo rm -f "/etc/systemd/system/gateway-monitor.service"
+        fi
+        sudo systemctl daemon-reload
+        echo "✅ 旧服务已卸载"
+        echo ""
+        # 设置安装标志
+        FORCE_INSTALL=true
+    else
+        echo "⏭️  跳过服务重新安装"
+        echo ""
+        echo "✨ 安装完成！"
+        echo ""
+        echo "📚 启动方式："
+        echo "  前台运行: $VENV_PYTHON $MONITOR_FILE"
+        echo "  后台运行: nohup $VENV_PYTHON $MONITOR_FILE > monitor.log 2>&1 &"
+        echo ""
+        echo "📖 详细使用说明请查看 README.md"
+        exit 0
+    fi
+else
+    FORCE_INSTALL=false
 fi
 
 echo "✅ 检测到 systemd 支持"
@@ -179,7 +244,12 @@ if [[ "$install_service" =~ ^[Yy]$ ]]; then
     
     CURRENT_USER=$(whoami)
     CURRENT_HOME=$HOME
-    PYTHON_PATH=$(which python3)
+    # 使用虚拟环境的 Python，如果不存在则回退到系统 Python
+    if [ -f "$VENV_DIR/bin/python3" ]; then
+        PYTHON_PATH="$VENV_DIR/bin/python3"
+    else
+        PYTHON_PATH=$(which python3)
+    fi
     
     # 创建 systemd service 文件
     SERVICE_CONTENT="[Unit]
@@ -217,7 +287,7 @@ WantedBy=multi-user.target"
     TEMP_SERVICE="/tmp/gateway-monitor-$$.service"
     echo "$SERVICE_CONTENT" > "$TEMP_SERVICE"
     
-    # 安装 service
+    # 安装 service（使用统一的服务名 gateway-monitor.service）
     echo "🔧 正在安装 systemd 服务..."
     sudo cp "$TEMP_SERVICE" /etc/systemd/system/gateway-monitor.service
     sudo systemctl daemon-reload
