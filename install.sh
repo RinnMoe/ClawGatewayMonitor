@@ -112,6 +112,36 @@ else
     echo "📢 飞书通知配置："
     read -p "请输入飞书群组 ID (格式: oc_xxx, 留空跳过): " CHAT_ID
     
+    # 通知超时重试配置
+    RETRY_ENABLED="false"
+    RETRY_COUNT=2
+    RETRY_DELAY=5
+    COMMAND_TIMEOUT=60
+    
+    if [ -n "$CHAT_ID" ]; then
+        echo ""
+        echo "🔄 通知超时重试配置："
+        read -p "是否启用超时重试? (y/n) [默认: n]: " enable_retry
+        enable_retry=${enable_retry:-n}
+        
+        if [[ "$enable_retry" =~ ^[Yy]$ ]]; then
+            RETRY_ENABLED="true"
+            
+            read -p "重试次数 [默认: 2]: " input_retry_count
+            RETRY_COUNT=${input_retry_count:-2}
+            
+            read -p "重试间隔(秒) [默认: 5]: " input_retry_delay
+            RETRY_DELAY=${input_retry_delay:-5}
+            
+            read -p "单次超时时间(秒) [默认: 60]: " input_timeout
+            COMMAND_TIMEOUT=${input_timeout:-60}
+            
+            echo "✅ 重试配置: 启用, ${RETRY_COUNT}次重试, 间隔${RETRY_DELAY}s, 超时${COMMAND_TIMEOUT}s"
+        else
+            echo "⏭️  超时重试已禁用"
+        fi
+    fi
+    
     # 创建配置文件
     if [ -z "$CHAT_ID" ]; then
         cat > "$CONFIG_FILE" << EOF
@@ -124,7 +154,11 @@ else
     },
     "notifications": {
         "enabled": false,
-        "chat_ids": []
+        "chat_ids": [],
+        "retry_on_timeout": false,
+        "retry_count": 2,
+        "retry_delay": 5,
+        "command_timeout": 60
     }
 }
 EOF
@@ -142,12 +176,17 @@ EOF
         "enabled": true,
         "chat_ids": [
             "$CHAT_ID"
-        ]
+        ],
+        "retry_on_timeout": $RETRY_ENABLED,
+        "retry_count": $RETRY_COUNT,
+        "retry_delay": $RETRY_DELAY,
+        "command_timeout": $COMMAND_TIMEOUT
     }
 }
 EOF
         echo "✅ 配置文件已创建"
         echo "   通知群组: $CHAT_ID"
+        echo "   超时重试: $RETRY_ENABLED (次数=$RETRY_COUNT, 间隔=${RETRY_DELAY}s, 超时=${COMMAND_TIMEOUT}s)"
     fi
     
     echo ""
