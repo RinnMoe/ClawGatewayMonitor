@@ -50,7 +50,11 @@ def load_config():
         },
         "notifications": {
             "enabled": True,
-            "chat_ids": []
+            "chat_ids": [],
+            "retry_on_timeout": False,
+            "retry_count": 2,
+            "retry_delay": 5,
+            "command_timeout": 60
         }
     }
     
@@ -79,6 +83,12 @@ GATEWAY_HOST = CONFIG["monitoring"]["gateway_host"]
 GATEWAY_PORT = CONFIG["monitoring"]["gateway_port"]
 CHECK_INTERVAL = CONFIG["monitoring"]["check_interval"]
 AUTO_RESTART_THRESHOLD = CONFIG["monitoring"]["auto_restart_threshold"]
+
+# 通知重试配置
+NOTIFY_RETRY_ON_TIMEOUT = CONFIG["notifications"].get("retry_on_timeout", False)
+NOTIFY_RETRY_COUNT = CONFIG["notifications"].get("retry_count", 2)
+NOTIFY_RETRY_DELAY = CONFIG["notifications"].get("retry_delay", 5)
+NOTIFY_COMMAND_TIMEOUT = CONFIG["notifications"].get("command_timeout", 60)
 
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gateway_monitor_state.json")
 
@@ -165,31 +175,49 @@ def send_message(chat_ids, message):
 
     for chat_id in chat_ids:
 
-        try:
+        max_attempts = (NOTIFY_RETRY_COUNT + 1) if NOTIFY_RETRY_ON_TIMEOUT else 1
+        last_error = None
 
-            subprocess.run(
-                [
-                    "openclaw",
-                    "message",
-                    "send",
-                    "--channel",
-                    "feishu",
-                    "--target",
-                    f"chat:{chat_id}",
-                    "--message",
-                    message
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=60,
-                check=True
-            )
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if attempt > 1:
+                    log(f"🔄 重试通知 {chat_id} (第 {attempt}/{max_attempts} 次)")
 
-            log(f"📢 已通知 {chat_id}")
+                subprocess.run(
+                    [
+                        "openclaw",
+                        "message",
+                        "send",
+                        "--channel",
+                        "feishu",
+                        "--target",
+                        f"chat:{chat_id}",
+                        "--message",
+                        message
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=NOTIFY_COMMAND_TIMEOUT,
+                    check=True
+                )
 
-        except Exception as e:
+                log(f"📢 已通知 {chat_id}")
+                last_error = None
+                break  # 成功，跳出重试循环
 
-            log(f"❌ 通知失败 {chat_id}: {e}")
+            except subprocess.TimeoutExpired as e:
+                last_error = e
+                log(f"⏰ 通知超时 {chat_id} (attempt {attempt}/{max_attempts}, timeout={NOTIFY_COMMAND_TIMEOUT}s)")
+                if attempt < max_attempts:
+                    time.sleep(NOTIFY_RETRY_DELAY)
+
+            except Exception as e:
+                last_error = e
+                log(f"❌ 通知失败 {chat_id}: {e}")
+                break  # 非超时错误不重试
+
+        if last_error is not None:
+            log(f"❌ 通知最终失败 {chat_id}: {last_error}")
 
 
 # ----------------------------
