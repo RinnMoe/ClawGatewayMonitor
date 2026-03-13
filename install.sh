@@ -251,6 +251,26 @@ if [[ "$install_service" =~ ^[Yy]$ ]]; then
         PYTHON_PATH=$(which python3)
     fi
     
+    # 自动检测 PATH，确保包含 openclaw 等 CLI 工具的路径
+    # 优先从当前环境获取 PATH，然后补充常见路径
+    DETECTED_PATH="$PATH"
+    # 常见的 CLI 工具安装路径
+    EXTRA_PATHS=(
+        "$HOME/.npm-global/bin"
+        "$HOME/.local/bin"
+        "$HOME/.yarn/bin"
+        "/usr/local/bin"
+        "/usr/bin"
+        "/bin"
+    )
+    for p in "${EXTRA_PATHS[@]}"; do
+        if [ -d "$p" ] && [[ ":$DETECTED_PATH:" != *":$p:"* ]]; then
+            DETECTED_PATH="$p:$DETECTED_PATH"
+        fi
+    done
+    echo "🔧 检测到 PATH: $DETECTED_PATH"
+    echo ""
+    
     # 创建 systemd service 文件
     SERVICE_CONTENT="[Unit]
 Description=OpenClaw Gateway Health Monitor
@@ -265,7 +285,8 @@ ExecStart=$PYTHON_PATH $MONITOR_FILE
 Restart=always
 RestartSec=10
 
-# Environment
+# Environment - PATH auto-detected from current shell
+Environment=\"PATH=$DETECTED_PATH\"
 Environment=\"OPENCLAW_GATEWAY=ws://127.0.0.1:18789\"
 Environment=\"OPENCLAW_GATEWAY_PORT=18789\"
 Environment=\"HOME=$CURRENT_HOME\"
