@@ -46,7 +46,9 @@ def load_config():
             "gateway_host": "127.0.0.1",
             "gateway_port": 18789,
             "check_interval": 2,
-            "auto_restart_threshold": 180
+            "auto_restart_threshold": 180,
+            "health_retries": 2,        # 断线检测重试次数
+            "health_retry_delay": 1     # 重试间隔(秒)
         },
         "notifications": {
             "enabled": True,
@@ -83,6 +85,8 @@ GATEWAY_HOST = CONFIG["monitoring"]["gateway_host"]
 GATEWAY_PORT = CONFIG["monitoring"]["gateway_port"]
 CHECK_INTERVAL = CONFIG["monitoring"]["check_interval"]
 AUTO_RESTART_THRESHOLD = CONFIG["monitoring"]["auto_restart_threshold"]
+HEALTH_RETRIES = CONFIG["monitoring"].get("health_retries", 2)
+HEALTH_RETRY_DELAY = CONFIG["monitoring"].get("health_retry_delay", 1)
 
 # 通知重试配置
 NOTIFY_RETRY_ON_TIMEOUT = CONFIG["notifications"].get("retry_on_timeout", False)
@@ -135,18 +139,23 @@ def save_state(state):
 # Gateway 检测
 # ----------------------------
 
-def is_gateway_online(host, port, timeout=2):
-    """WebSocket health check"""
+def is_gateway_online(host, port, timeout=2, retries=2, retry_delay=1):
+    """WebSocket health check with debouncing (retry to avoid flapping)."""
 
     url = f"ws://{host}:{port}"
 
-    try:
-        ws = websocket.create_connection(url, timeout=timeout)
-        ws.close()
-        return True
-
-    except Exception:
-        return False
+    for attempt in range(1, retries + 2):  # total attempts = retries + 1
+        try:
+            ws = websocket.create_connection(url, timeout=timeout)
+            ws.close()
+            if attempt > 1:
+                log(f"✅ Gateway 恢复在线 (retry {attempt} 成功)")
+            return True
+        except Exception as e:
+            if attempt <= retries + 1:
+                time.sleep(retry_delay)
+                continue
+            return False
 
 
 # ----------------------------
@@ -310,7 +319,10 @@ def main():
 
             current_status = is_gateway_online(
                 GATEWAY_HOST,
-                GATEWAY_PORT
+                GATEWAY_PORT,
+                timeout=2,
+                retries=HEALTH_RETRIES,
+                retry_delay=HEALTH_RETRY_DELAY
             )
 
             # ----------------------------
