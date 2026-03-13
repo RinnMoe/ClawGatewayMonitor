@@ -116,7 +116,7 @@ else
     RETRY_ENABLED="false"
     RETRY_COUNT=2
     RETRY_DELAY=5
-    COMMAND_TIMEOUT=60
+    COMMAND_TIMEOUT=150
     
     if [ -n "$CHAT_ID" ]; then
         echo ""
@@ -133,8 +133,8 @@ else
             read -p "重试间隔(秒) [默认: 5]: " input_retry_delay
             RETRY_DELAY=${input_retry_delay:-5}
             
-            read -p "单次超时时间(秒) [默认: 60]: " input_timeout
-            COMMAND_TIMEOUT=${input_timeout:-60}
+            read -p "单次超时时间(秒) [默认: 150]: " input_timeout
+            COMMAND_TIMEOUT=${input_timeout:-150}
             
             echo "✅ 重试配置: 启用, ${RETRY_COUNT}次重试, 间隔${RETRY_DELAY}s, 超时${COMMAND_TIMEOUT}s"
         else
@@ -158,7 +158,7 @@ else
         "retry_on_timeout": false,
         "retry_count": 2,
         "retry_delay": 5,
-        "command_timeout": 60
+        "command_timeout": 150
     }
 }
 EOF
