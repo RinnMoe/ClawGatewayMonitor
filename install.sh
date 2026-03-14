@@ -118,6 +118,55 @@ else
     RETRY_DELAY=5
     COMMAND_TIMEOUT=150
     
+    # 健康检查防抖配置（默认开启）
+    DEBOUNCE_ENABLED="true"
+    HEALTH_RETRIES=2
+    HEALTH_RETRY_DELAY=1
+    
+    if [ -n "$CHAT_ID" ]; then
+        echo ""
+        echo "🔄 通知超时重试配置："
+        read -p "是否启用超时重试? (y/n) [默认: n]: " enable_retry
+        enable_retry=${enable_retry:-n}
+        
+        if [[ "$enable_retry" =~ ^[Yy]$ ]]; then
+            RETRY_ENABLED="true"
+            
+            read -p "重试次数 [默认: 2]: " input_retry_count
+            RETRY_COUNT=${input_retry_count:-2}
+            
+            read -p "重试间隔(秒) [默认: 5]: " input_retry_delay
+            RETRY_DELAY=${input_retry_delay:-5}
+            
+            read -p "单次超时时间(秒) [默认: 150]: " input_timeout
+            COMMAND_TIMEOUT=${input_timeout:-150}
+            
+            echo "✅ 重试配置: 启用, ${RETRY_COUNT}次重试, 间隔${RETRY_DELAY}s, 超时${COMMAND_TIMEOUT}s"
+        else
+            echo "⏭️  超时重试已禁用"
+        fi
+        
+        echo ""
+        echo "🛡️  健康检查防抖配置："
+        read -p "是否启用健康检查防抖 (多次握手避免抖动)? (y/n) [默认: y]: " enable_debounce
+        enable_debounce=${enable_debounce:-y}
+        
+        if [[ "$enable_debounce" =~ ^[Yy]$ ]]; then
+            DEBOUNCE_ENABLED="true"
+            
+            read -p "健康检查失败重试次数 [默认: 2]: " input_health_retries
+            HEALTH_RETRIES=${input_health_retries:-2}
+            
+            read -p "重试间隔(秒) [默认: 1]: " input_health_delay
+            HEALTH_RETRY_DELAY=${input_health_delay:-1}
+            
+            echo "✅ 防抖配置: 启用, ${HEALTH_RETRIES}次重试, 间隔${HEALTH_RETRY_DELAY}s"
+        else
+            DEBOUNCE_ENABLED="false"
+            echo "⏭️  防抖已禁用"
+        fi
+    fi
+    
     if [ -n "$CHAT_ID" ]; then
         echo ""
         echo "🔄 通知超时重试配置："
@@ -150,7 +199,9 @@ else
         "gateway_host": "$GATEWAY_HOST",
         "gateway_port": $GATEWAY_PORT,
         "check_interval": 2,
-        "auto_restart_threshold": 180
+        "auto_restart_threshold": 180,
+        "health_retries": $HEALTH_RETRIES,
+        "health_retry_delay": $HEALTH_RETRY_DELAY
     },
     "notifications": {
         "enabled": false,
@@ -163,6 +214,7 @@ else
 }
 EOF
         echo "✅ 配置文件已创建（通知已禁用）"
+        echo "   防抖配置: 默认启用, ${HEALTH_RETRIES}次重试, 间隔${HEALTH_RETRY_DELAY}s"
     else
         cat > "$CONFIG_FILE" << EOF
 {
@@ -170,7 +222,9 @@ EOF
         "gateway_host": "$GATEWAY_HOST",
         "gateway_port": $GATEWAY_PORT,
         "check_interval": 2,
-        "auto_restart_threshold": 180
+        "auto_restart_threshold": 180,
+        "health_retries": $HEALTH_RETRIES,
+        "health_retry_delay": $HEALTH_RETRY_DELAY
     },
     "notifications": {
         "enabled": true,
@@ -187,6 +241,7 @@ EOF
         echo "✅ 配置文件已创建"
         echo "   通知群组: $CHAT_ID"
         echo "   超时重试: $RETRY_ENABLED (次数=$RETRY_COUNT, 间隔=${RETRY_DELAY}s, 超时=${COMMAND_TIMEOUT}s)"
+        echo "   防抖配置: $DEBOUNCE_ENABLED (次数=$HEALTH_RETRIES, 间隔=${HEALTH_RETRY_DELAY}s)"
     fi
     
     echo ""
