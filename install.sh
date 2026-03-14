@@ -62,6 +62,12 @@ if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
         exit 1
     fi
     
+    if ! "$VENV_PYTHON" -c "import psutil" 2>/dev/null; then
+        echo "❌ 依赖安装失败，关键模块 'psutil' 不可用"
+        echo "   请手动运行: $VENV_DIR/bin/pip install -U psutil"
+        exit 1
+    fi
+    
     echo "✅ 依赖安装完成"
     
     # 给出启动提示
@@ -167,6 +173,43 @@ else
         fi
     fi
     
+    # 系统监控配置
+    SYSTEM_MONITORING_ENABLED="true"
+    SYSTEM_CHECK_INTERVAL=60
+    CPU_THRESHOLD=80
+    MEMORY_THRESHOLD=80
+    DISK_THRESHOLD=90
+    LOAD_THRESHOLD=5.0
+    
+    echo ""
+    echo "📊 系统资源监控配置："
+    read -p "是否启用系统资源监控? (y/n) [默认: y]: " enable_system_monitoring
+    enable_system_monitoring=${enable_system_monitoring:-y}
+    
+    if [[ "$enable_system_monitoring" =~ ^[Yy]$ ]]; then
+        SYSTEM_MONITORING_ENABLED="true"
+        
+        read -p "CPU使用率阈值(%) [默认: 80]: " input_cpu_threshold
+        CPU_THRESHOLD=${input_cpu_threshold:-80}
+        
+        read -p "内存使用率阈值(%) [默认: 80]: " input_memory_threshold
+        MEMORY_THRESHOLD=${input_memory_threshold:-80}
+        
+        read -p "磁盘使用率阈值(%) [默认: 90]: " input_disk_threshold
+        DISK_THRESHOLD=${input_disk_threshold:-90}
+        
+        read -p "系统负载阈值 [默认: 5.0]: " input_load_threshold
+        LOAD_THRESHOLD=${input_load_threshold:-5.0}
+        
+        read -p "监控检查间隔(秒) [默认: 60]: " input_system_check_interval
+        SYSTEM_CHECK_INTERVAL=${input_system_check_interval:-60}
+        
+        echo "✅ 系统监控配置: 启用, CPU阈值=${CPU_THRESHOLD}%, 内存阈值=${MEMORY_THRESHOLD}%, 磁盘阈值=${DISK_THRESHOLD}%, 负载阈值=${LOAD_THRESHOLD}, 检查间隔=${SYSTEM_CHECK_INTERVAL}s"
+    else
+        SYSTEM_MONITORING_ENABLED="false"
+        echo "⏭️  系统监控已禁用"
+    fi
+    
     # 创建配置文件
     if [ -z "$CHAT_ID" ]; then
         cat > "$CONFIG_FILE" << EOF
@@ -177,7 +220,15 @@ else
         "check_interval": 2,
         "auto_restart_threshold": 180,
         "health_retries": $HEALTH_RETRIES,
-        "health_retry_delay": $HEALTH_RETRY_DELAY
+        "health_retry_delay": $HEALTH_RETRY_DELAY,
+        "system_monitoring": {
+            "enabled": $SYSTEM_MONITORING_ENABLED,
+            "check_interval": $SYSTEM_CHECK_INTERVAL,
+            "cpu_threshold": $CPU_THRESHOLD,
+            "memory_threshold": $MEMORY_THRESHOLD,
+            "disk_threshold": $DISK_THRESHOLD,
+            "load_threshold": $LOAD_THRESHOLD
+        }
     },
     "notifications": {
         "enabled": false,
@@ -191,6 +242,7 @@ else
 EOF
         echo "✅ 配置文件已创建（通知已禁用）"
         echo "   防抖配置: 默认启用, ${HEALTH_RETRIES}次重试, 间隔${HEALTH_RETRY_DELAY}s"
+        echo "   系统监控: $SYSTEM_MONITORING_ENABLED (CPU阈值=${CPU_THRESHOLD}%, 内存阈值=${MEMORY_THRESHOLD}%, 磁盘阈值=${DISK_THRESHOLD}%, 负载阈值=${LOAD_THRESHOLD})"
     else
         cat > "$CONFIG_FILE" << EOF
 {
@@ -200,7 +252,15 @@ EOF
         "check_interval": 2,
         "auto_restart_threshold": 180,
         "health_retries": $HEALTH_RETRIES,
-        "health_retry_delay": $HEALTH_RETRY_DELAY
+        "health_retry_delay": $HEALTH_RETRY_DELAY,
+        "system_monitoring": {
+            "enabled": $SYSTEM_MONITORING_ENABLED,
+            "check_interval": $SYSTEM_CHECK_INTERVAL,
+            "cpu_threshold": $CPU_THRESHOLD,
+            "memory_threshold": $MEMORY_THRESHOLD,
+            "disk_threshold": $DISK_THRESHOLD,
+            "load_threshold": $LOAD_THRESHOLD
+        }
     },
     "notifications": {
         "enabled": true,
@@ -218,6 +278,7 @@ EOF
         echo "   通知群组: $CHAT_ID"
         echo "   超时重试: $RETRY_ENABLED (次数=$RETRY_COUNT, 间隔=${RETRY_DELAY}s, 超时=${COMMAND_TIMEOUT}s)"
         echo "   防抖配置: $DEBOUNCE_ENABLED (次数=$HEALTH_RETRIES, 间隔=${HEALTH_RETRY_DELAY}s)"
+        echo "   系统监控: $SYSTEM_MONITORING_ENABLED (CPU阈值=${CPU_THRESHOLD}%, 内存阈值=${MEMORY_THRESHOLD}%, 磁盘阈值=${DISK_THRESHOLD}%, 负载阈值=${LOAD_THRESHOLD})"
     fi
     
     echo ""
@@ -229,7 +290,7 @@ echo "✨ 配置完成！"
 echo ""
 
 # ----------------------------
-# 4. systemd 服务配置（可选）
+# 4. systemd 服务配置
 # ----------------------------
 
 echo "📋 步骤 4/4: systemd 服务配置..."
@@ -268,8 +329,8 @@ fi
 if [ -n "$EXISTING_SERVICE" ]; then
     echo "⚠️  检测到已存在的服务: $EXISTING_SERVICE"
     echo ""
-    read -p "是否要卸载并重新安装服务? (y/n) [默认: n]: " reinstall_service
-    reinstall_service=${reinstall_service:-n}
+    read -p "是否要卸载并重新安装服务? (y/n) [默认: y]: " reinstall_service
+    reinstall_service=${reinstall_service:-y}
     
     if [[ "$reinstall_service" =~ ^[Yy]$ ]]; then
         echo ""
@@ -289,7 +350,7 @@ if [ -n "$EXISTING_SERVICE" ]; then
         # 设置安装标志
         FORCE_INSTALL=true
     else
-        echo "⏭️  跳过服务重新安装"
+        echo "⏭️  跳过重新安装"
         echo ""
         echo "✨ 安装完成！"
         echo ""
@@ -307,8 +368,8 @@ fi
 echo "✅ 检测到 systemd 支持"
 echo ""
 
-read -p "是否安装为 systemd 服务? (y/n) [默认: n]: " install_service
-install_service=${install_service:-n}
+read -p "是否安装为 systemd 服务? (y/n) [默认: y]: " install_service
+install_service=${install_service:-y}
 
 if [[ "$install_service" =~ ^[Yy]$ ]]; then
     
@@ -389,8 +450,8 @@ WantedBy=multi-user.target"
     echo ""
     
     # 询问是否开机启动
-    read -p "是否设置开机自动启动? (y/n) [默认: n]: " enable_service
-    enable_service=${enable_service:-n}
+    read -p "是否设置开机自动启动? (y/n) [默认: y]: " enable_service
+    enable_service=${enable_service:-y}
     
     if [[ "$enable_service" =~ ^[Yy]$ ]]; then
         sudo systemctl enable gateway-monitor
