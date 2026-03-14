@@ -8,6 +8,8 @@ OpenClaw Gateway Health Monitor
 3. 离线超过阈值自动 restart
 4. 捕获 restart 输出并分析异常
 5. 状态持久化避免重复 restart
+6. 系统资源监控 (CPU、内存、磁盘、负载)
+7. 高负载时发送告警通知
 """
 
 import os
@@ -20,6 +22,7 @@ import subprocess
 from datetime import datetime
 
 import websocket
+import psutil
 
 
 # ----------------------------
@@ -48,7 +51,15 @@ def load_config():
             "check_interval": 2,
             "auto_restart_threshold": 180,
             "health_retries": 2,        # 断线检测重试次数
-            "health_retry_delay": 1     # 重试间隔(秒)
+            "health_retry_delay": 1,    # 重试间隔(秒)
+            "system_monitoring": {
+                "enabled": True,
+                "check_interval": 60,   # 系统监控检查间隔(秒)
+                "cpu_threshold": 80,    # CPU使用率阈值(%)
+                "memory_threshold": 80, # 内存使用率阈值(%)
+                "disk_threshold": 90,   # 磁盘使用率阈值(%)
+                "load_threshold": 5.0   # 系统负载阈值
+            }
         },
         "notifications": {
             "enabled": True,
@@ -87,6 +98,14 @@ CHECK_INTERVAL = CONFIG["monitoring"]["check_interval"]
 AUTO_RESTART_THRESHOLD = CONFIG["monitoring"]["auto_restart_threshold"]
 HEALTH_RETRIES = CONFIG["monitoring"].get("health_retries", 2)
 HEALTH_RETRY_DELAY = CONFIG["monitoring"].get("health_retry_delay", 1)
+
+# 系统监控配置
+SYSTEM_MONITORING_ENABLED = CONFIG["monitoring"].get("system_monitoring", {}).get("enabled", True)
+SYSTEM_CHECK_INTERVAL = CONFIG["monitoring"].get("system_monitoring", {}).get("check_interval", 60)
+CPU_THRESHOLD = CONFIG["monitoring"].get("system_monitoring", {}).get("cpu_threshold", 80)
+MEMORY_THRESHOLD = CONFIG["monitoring"].get("system_monitoring", {}).get("memory_threshold", 80)
+DISK_THRESHOLD = CONFIG["monitoring"].get("system_monitoring", {}).get("disk_threshold", 90)
+LOAD_THRESHOLD = CONFIG["monitoring"].get("system_monitoring", {}).get("load_threshold", 5.0)
 
 # 通知重试配置
 NOTIFY_RETRY_ON_TIMEOUT = CONFIG["notifications"].get("retry_on_timeout", False)
@@ -294,6 +313,97 @@ def restart_gateway(chat_ids):
 
 
 # ----------------------------
+# 系统资源监控
+# ----------------------------
+
+def get_system_stats():
+    """获取系统资源使用情况"""
+    try:
+        # CPU使用率
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        # 内存使用率
+        memory = psutil.virtual_memory()
+        memory_percent = memory.percent
+        
+        # 磁盘使用率
+        disk = psutil.disk_usage('/')
+        disk_percent = disk.percent
+        
+        # 系统负载 (仅Unix系统)
+        try:
+            load_avg = psutil.getloadavg()
+            load_1min = load_avg[0] if load_avg else 0
+        except (AttributeError, OSError):
+            # Windows系统不支持getloadavg
+            load_1min = 0
+        
+        return {
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory_percent,
+            "disk_percent": disk_percent,
+            "load_1min": load_1min,
+            "memory_total_gb": round(memory.total / (1024**3), 2),
+            "memory_used_gb": round(memory.used / (1024**3), 2),
+            "disk_total_gb": round(disk.total / (1024**3), 2),
+            "disk_used_gb": round(disk.used / (1024**3), 2)
+        }
+    except Exception as e:
+        log(f"❌ 获取系统信息失败: {e}")
+        return None
+
+
+def check_system_health(chat_ids, last_check_time):
+    """检查系统健康状态并发送通知"""
+    current_time = time.time()
+    
+    # 检查是否到了系统监控检查时间
+    if current_time - last_check_time < SYSTEM_CHECK_INTERVAL:
+        return last_check_time
+    
+    if not SYSTEM_MONITORING_ENABLED:
+        return current_time
+    
+    stats = get_system_stats()
+    if not stats:
+        return current_time
+    
+    # 检查各项指标
+    alerts = []
+    
+    if stats["cpu_percent"] > CPU_THRESHOLD:
+        alerts.append(f"CPU使用率: {stats['cpu_percent']}% (阈值: {CPU_THRESHOLD}%)")
+    
+    if stats["memory_percent"] > MEMORY_THRESHOLD:
+        alerts.append(f"内存使用率: {stats['memory_percent']}% (阈值: {MEMORY_THRESHOLD}%)")
+    
+    if stats["disk_percent"] > DISK_THRESHOLD:
+        alerts.append(f"磁盘使用率: {stats['disk_percent']}% (阈值: {DISK_THRESHOLD}%)")
+    
+    if stats["load_1min"] > LOAD_THRESHOLD:
+        alerts.append(f"系统负载: {stats['load_1min']} (阈值: {LOAD_THRESHOLD})")
+    
+    # 如果有告警，发送通知
+    if alerts:
+        alert_msg = "⚠️ 系统资源告警\n"
+        alert_msg += "\n".join(alerts)
+        alert_msg += f"\n\n📊 系统状态:\n"
+        alert_msg += f"CPU: {stats['cpu_percent']}%\n"
+        alert_msg += f"内存: {stats['memory_percent']}% ({stats['memory_used_gb']}GB/{stats['memory_total_gb']}GB)\n"
+        alert_msg += f"磁盘: {stats['disk_percent']}% ({stats['disk_used_gb']}GB/{stats['disk_total_gb']}GB)\n"
+        alert_msg += f"负载: {stats['load_1min']}\n"
+        alert_msg += f"🕐 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        log(f"⚠️ 系统资源告警: {', '.join(alerts)}")
+        send_message(chat_ids, alert_msg)
+    
+    # 记录系统状态（即使没有告警）
+    log(f"📊 系统状态: CPU {stats['cpu_percent']}%, 内存 {stats['memory_percent']}%, 磁盘 {stats['disk_percent']}%, 负载 {stats['load_1min']}")
+    
+    return current_time
+
+
+# ----------------------------
 # 主程序
 # ----------------------------
 
@@ -312,6 +422,11 @@ def main():
     chat_ids = read_chat_ids()
 
     log(f"📋 通知目标: {len(chat_ids)} 个群组")
+    
+    # 系统监控相关变量
+    last_system_check_time = 0
+    if SYSTEM_MONITORING_ENABLED:
+        log(f"📊 系统监控已启用 (CPU阈值: {CPU_THRESHOLD}%, 内存阈值: {MEMORY_THRESHOLD}%, 磁盘阈值: {DISK_THRESHOLD}%, 负载阈值: {LOAD_THRESHOLD})")
 
     try:
 
@@ -393,6 +508,11 @@ def main():
                         save_state(state)
 
                 last_status = False
+            
+            # ----------------------------
+            # 系统资源监控
+            # ----------------------------
+            last_system_check_time = check_system_health(chat_ids, last_system_check_time)
 
             time.sleep(CHECK_INTERVAL)
 
