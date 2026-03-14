@@ -147,14 +147,14 @@ else
         fi
         
         echo ""
-        echo "🛡️  健康检查防抖配置："
-        read -p "是否启用健康检查防抖 (多次握手避免抖动)? (y/n) [默认: y]: " enable_debounce
+        echo "🛡️  防抖配置："
+        read -p "是否多次握手避免抖动? (y/n) [默认: y]: " enable_debounce
         enable_debounce=${enable_debounce:-y}
         
         if [[ "$enable_debounce" =~ ^[Yy]$ ]]; then
             DEBOUNCE_ENABLED="true"
             
-            read -p "健康检查失败重试次数 [默认: 2]: " input_health_retries
+            read -p "失败重试次数 [默认: 2]: " input_health_retries
             HEALTH_RETRIES=${input_health_retries:-2}
             
             read -p "重试间隔(秒) [默认: 1]: " input_health_delay
@@ -164,30 +164,6 @@ else
         else
             DEBOUNCE_ENABLED="false"
             echo "⏭️  防抖已禁用"
-        fi
-    fi
-    
-    if [ -n "$CHAT_ID" ]; then
-        echo ""
-        echo "🔄 通知超时重试配置："
-        read -p "是否启用超时重试? (y/n) [默认: n]: " enable_retry
-        enable_retry=${enable_retry:-n}
-        
-        if [[ "$enable_retry" =~ ^[Yy]$ ]]; then
-            RETRY_ENABLED="true"
-            
-            read -p "重试次数 [默认: 2]: " input_retry_count
-            RETRY_COUNT=${input_retry_count:-2}
-            
-            read -p "重试间隔(秒) [默认: 5]: " input_retry_delay
-            RETRY_DELAY=${input_retry_delay:-5}
-            
-            read -p "单次超时时间(秒) [默认: 150]: " input_timeout
-            COMMAND_TIMEOUT=${input_timeout:-150}
-            
-            echo "✅ 重试配置: 启用, ${RETRY_COUNT}次重试, 间隔${RETRY_DELAY}s, 超时${COMMAND_TIMEOUT}s"
-        else
-            echo "⏭️  超时重试已禁用"
         fi
     fi
     
